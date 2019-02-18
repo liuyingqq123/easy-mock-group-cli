@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+
+var _ = require('lodash')
+var fs = require('fs')
+var path = require('path')
+var program = require('commander')
+var chalk = require('chalk')
+var ora = require('ora')
+var home = require('user-home')
+var rimraf = require('rimraf')
+var crypto = require('crypto')
+var tildify = require('tildify')
+var download = require('download-git-repo')
+var cosmiconfig = require('cosmiconfig')
+
+var logger = require('../lib/logger')
+var generate = require('../lib/generate')
+var localPath = require('../lib/local-path')
+var checkVersion = require('../lib/check-version')
+
+var isLocalPath = localPath.isLocalPath
+var getTemplatePath = localPath.getTemplatePath
+
+program
+  .usage('[project-path]')
+  .option('-c, --clone', '使用 git clone')
+  .option('--offline', '使用缓存模板')
+  .parse(process.argv)
+
+run()
+
+function run () {
+  var explorer = cosmiconfig('easymock', {
+    searchPlaces: [
+      'package.json',
+      '.easymockrc',
+      '.easymockrc.json',
+      '.easymockrc.yaml',
+      '.easymockrc.yml',
+      '.easymockrc.js',
+      'easymock.config.js',
+      '.easy-mock.js'
+    ]
+  })
+  var search = explorer.searchSync()
+  var projectPath = program.args[0] ? path.resolve(process.cwd(), program.args[0]) : process.cwd()
+
+  if (!search) {
+    logger.fatal('找不到 ".easy-mock.js" 配置文件.')
+  }
+
+  var config = search.config
+  var template = config.template || 'axios'
+  var hasSlash = template.indexOf('/') > -1
+  var hash = crypto.createHash('sha256').update(template).digest('hex')
+  var tmp = path.join(home, '.easy-mock-templates', hash)
+
+  if (program.offline) {
+    logger.log('> 使用缓存模板 %s', chalk.yellow(tildify(tmp)))
+    template = tmp
+  }
+
+  // check if template is local
+  if (isLocalPath(template)) {
+    var templatePath = getTemplatePath(template, projectPath)
+    if (fs.existsSync(templatePath)) {
+      generate(projectPath, templatePath, config, generateDone)
+    } else {
+      logger.fatal('找不到本地模板 "%s".', template)
+    }
+  } else {
+    checkVersion(() => {
+      if (!hasSlash) {
+        // use official templates
+        var officialTemplate = 'easy-mock-templates/' + template
+        downloadAndGenerate(officialTemplate, tmp, projectPath, config)
+      } else {
+        downloadAndGenerate(template, tmp, projectPath, config)
+      }
+    })
+  }
+}
+
+function downloadAndGenerate (template, tmp, projectPath, config) {
+  var spinner = ora('正在下载模板.')
+  spinner.start()
+  // Remove if local template exists
+  if (fs.existsSync(tmp)) rimraf.sync(tmp)
+  download(template, tmp, {
+    clone: program.clone || false
+  }, function (err) {
+    spinner.stop()
+    if (err) logger.fatal('模板下载失败 ' + template + ': ' + err.message.trim())
+    generate(projectPath, tmp, config, generateDone)
+  })
+}
+
+function generateDone (error, files) {
+  if (error) logger.fatal(error)
+  _.forEach(files, (file) => {
+    logger.success('"%s" 分组创建成功.', chalk.yellow(tildify(file)))
+  })
+}
