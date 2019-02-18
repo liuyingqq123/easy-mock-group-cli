@@ -1,10 +1,10 @@
 {
   "name": "easy-mock-group-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "main": "index.js",
   "license": "MIT",
-  "author": "Chuangker",
-  "description": "Create api.js for Easy-Mock.",
+  "author": "liuying",
+  "description": "Create api.js for Easy-Mock-Group.",
   "bin": {
     "easymock": "./bin/easymock",
     "easymock-init": "./bin/easymock-init",
